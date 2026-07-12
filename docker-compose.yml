@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      # Get a free key at https://www.football-data.org/client/register
+      FOOTBALL_DATA_API_KEY: ${FOOTBALL_DATA_API_KEY:-}
+      PORT: "8080"
+    # Chromium needs a larger /dev/shm than Docker's 64MB default.
+    shm_size: "1gb"
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      # Host port is configurable (8080/8088 are often taken). Default: 9090.
+      - "${APP_PORT:-9090}:80"
+    restart: unless-stopped
