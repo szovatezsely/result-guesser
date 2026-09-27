@@ -46,16 +46,39 @@ data class AnalysisResponse(
     val cached: Boolean = false,
 )
 
+@Serializable
+data class MatchListResponse(
+    val matches: List<PopularMatch>,
+    /** When the list was scraped from TippmixPRO (ISO-8601, UTC); null if never. */
+    val updatedAt: String?,
+    /** A scrape is running right now (e.g. the periodic background refresh). */
+    val refreshing: Boolean,
+    /** How often the list is refreshed in the background, in minutes. */
+    val autoRefreshMinutes: Long,
+)
+
 fun Route.apiRoutes(
     scraper: TippmixScraper,
     stats: EspnClient,
     store: AnalysisStore,
+    autoRefreshMinutes: Long,
 ) {
     route("/api") {
 
+        // Served from the last scrape; only ?refresh=true (the "Meccsek frissítése" button) scrapes on demand.
         get("/matches") {
-            val matches = withContext(Dispatchers.IO) { scraper.fetchPopularMatches() }
-            call.respond(matches)
+            val refresh = call.request.queryParameters["refresh"]?.toBooleanStrictOrNull() == true
+            val list = withContext(Dispatchers.IO) {
+                if (refresh) scraper.refreshPopularMatches() else scraper.popularMatches()
+            }
+            call.respond(
+                MatchListResponse(
+                    matches = list.matches,
+                    updatedAt = list.updatedAt?.toString(),
+                    refreshing = scraper.isRefreshing,
+                    autoRefreshMinutes = autoRefreshMinutes,
+                ),
+            )
         }
 
         get("/matches/{id}/analysis") {

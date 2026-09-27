@@ -70,6 +70,11 @@ open http://localhost:9090
 The host port defaults to **9090**. Change it by setting `APP_PORT` in `.env`
 (e.g. `APP_PORT=9100`) — handy when 8080/8088 are already taken.
 
+The match list is scraped once at start-up and then every minute in the
+background (`LIST_REFRESH_MINUTES`), on its own browser so it never delays
+anything else; the main page always shows the latest list instantly with its
+update time, and **↻ Meccsek frissítése** (top right) scrapes it on demand.
+
 Opening a match the first time takes 15–30 s (browser scrape of ~200–450
 markets, the stats requests and the simulation); the page shows a spinner with
 the current step. The result is saved (under `DATA_DIR`, default `./data`; a
@@ -81,7 +86,7 @@ fresh odds and stats.
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/matches` | Popular football matches with 1X2 odds. |
+| `GET /api/matches` | Popular football matches with 1X2 odds, as of the last scrape (`updatedAt`); `?refresh=true` scrapes TippmixPRO now. |
 | `GET /api/matches/{id}/analysis` | Form, head-to-head and a ✅/❌ verdict for every betting option — the saved result if the match was analysed before (`?refresh=true` recalculates; `?threshold=` optional, default 0.5). |
 | `GET /health` | Liveness check. |
 

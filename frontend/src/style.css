@@ -224,3 +224,5 @@ table.verdicts tr.yes td.num:nth-last-child(2) { color: var(--accent); font-weig
   .appbar .long { display: none; }
   .appbar .short { display: inline; }
 }
+
+.list-updated { margin-top: -0.4rem; }

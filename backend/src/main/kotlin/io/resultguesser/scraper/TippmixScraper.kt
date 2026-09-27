@@ -9,17 +9,25 @@ import io.resultguesser.cache.TtlCache
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.time.Instant
+import java.util.concurrent.Callable
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Scrapes the embedded EveryMatrix sportsbook (sports2.tippmixpro.hu) with a
  * headless Chromium. All DOM selectors live here — this is the single place to
  * fix if TippmixPRO changes its markup.
  *
- * Playwright is single-threaded, so a lock serialises page access. Results are
- * cached briefly to keep responses fast and avoid hammering the site.
+ * Two independent headless browsers, each on its own thread (Playwright must be
+ * used from the thread that created it): one for the popular list, one for
+ * event pages — so a background list refresh never delays opening a match.
+ * The popular list is kept as a snapshot that is only replaced by a new scrape
+ * (at start-up, periodically in the background, or on request); reading it
+ * never waits on the browser. Event markets are cached briefly.
  */
 class TippmixScraper(
     private val baseUrl: String = "https://sports2.tippmixpro.hu",
@@ -28,42 +36,55 @@ class TippmixScraper(
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val json = Json { ignoreUnknownKeys = true }
-    private val lock = ReentrantLock()
 
-    private val popularCache = TtlCache<String, List<PopularMatch>>(ttlMillis = 60 * 1000)
+    private val listBrowser = BrowserSlot("tippmix-list")
+    private val eventBrowser = BrowserSlot("tippmix-events")
+
+    /** The latest popular list; null until the first successful scrape. */
+    @Volatile
+    private var snapshot: PopularSnapshot? = null
+
+    /** The list scrape in progress, if any — concurrent refresh requests join it. */
+    private val listRefresh = AtomicReference<CompletableFuture<PopularSnapshot>?>(null)
+
     private val marketsCache = TtlCache<String, EventMarkets>(ttlMillis = 60 * 1000)
 
     /** Every match seen in a popular list, so opening one doesn't re-scrape the list (≈10 s). */
     private val known = ConcurrentHashMap<String, PopularMatch>()
 
-    private var playwright: Playwright? = null
-    private var browser: Browser? = null
+    /** The current popular list; only scrapes (or joins the scrape in progress) if there is none yet. */
+    fun popularMatches(): PopularSnapshot = snapshot ?: refreshPopularMatches()
 
-    private fun page(): Page {
-        if (browser == null) {
-            log.info("Launching headless Chromium…")
-            playwright = Playwright.create()
-            browser = playwright!!.chromium().launch(
-                BrowserType.LaunchOptions()
-                    .setHeadless(true)
-                    .setArgs(listOf("--no-sandbox", "--disable-dev-shm-usage")),
-            )
+    /** True while a scrape of the popular list is running. */
+    val isRefreshing: Boolean get() = listRefresh.get() != null
+
+    /**
+     * Scrapes the popular list now and replaces the snapshot; if a scrape is
+     * already running, waits for that one instead of starting another. A failed
+     * scrape keeps the previous snapshot (an empty list is only returned if
+     * there has never been a successful one).
+     */
+    fun refreshPopularMatches(): PopularSnapshot {
+        val mine = CompletableFuture<PopularSnapshot>()
+        listRefresh.compareAndExchange(null, mine)?.let { running -> return running.get() }
+        try {
+            val matches = scrapePopularMatches()
+            if (matches != null) {
+                matches.forEach { m -> known[m.id] = m }
+                snapshot = PopularSnapshot(matches, Instant.now())
+            }
+            return (snapshot ?: PopularSnapshot(emptyList(), null)).also { mine.complete(it) }
+        } catch (e: Exception) {
+            mine.completeExceptionally(e)
+            throw e
+        } finally {
+            listRefresh.set(null)
         }
-        val ctx = browser!!.newContext(
-            Browser.NewContextOptions()
-                .setUserAgent(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-                )
-                .setLocale("hu-HU"),
-        )
-        return ctx.newPage()
     }
 
-    /** Popular ("Kiemelt") football matches from the sportsbook home page. */
-    fun fetchPopularMatches(): List<PopularMatch> = popularCache.getOrPut("home") {
-        lock.withLock {
-            val page = page()
+    /** Popular ("Kiemelt") football matches from the sportsbook home page, or null if the scrape failed. */
+    private fun scrapePopularMatches(): List<PopularMatch>? =
+        listBrowser.withPage { page ->
             try {
                 page.navigate(
                     "$baseUrl/$lang",
@@ -74,22 +95,18 @@ class TippmixScraper(
                 val raw = page.evaluate(POPULAR_JS) as String
                 json.decodeFromString<List<PopularMatch>>(raw).also {
                     log.info("Scraped {} popular football matches", it.size)
-                    it.forEach { m -> known[m.id] = m }
                 }
             } catch (e: Exception) {
                 log.error("Failed to scrape popular matches: {}", e.message)
-                emptyList()
-            } finally {
-                page.context().close()
+                null
             }
         }
-    }
 
     /**
      * A popular match by id: from the last list scrape when it's known (its
      * live score is refreshed from the event page anyway), else a fresh scrape.
      */
-    fun findPopularMatch(id: String): PopularMatch? = known[id] ?: fetchPopularMatches().find { it.id == id }
+    fun findPopularMatch(id: String): PopularMatch? = known[id] ?: popularMatches().matches.find { it.id == id }
 
     /**
      * All betting markets for a single event, navigated via its detail href.
@@ -100,8 +117,7 @@ class TippmixScraper(
      * it is consistent with the odds (the popular-list card can be a minute old).
      */
     fun fetchEventMarkets(href: String): EventMarkets = marketsCache.getOrPut(href) {
-        lock.withLock {
-            val page = page()
+        eventBrowser.withPage { page ->
             try {
                 val base = if (href.startsWith("http")) href else "$baseUrl$href"
                 page.navigate(
@@ -126,15 +142,65 @@ class TippmixScraper(
             } catch (e: Exception) {
                 log.error("Failed to scrape markets for {}: {}", href, e.message)
                 EventMarkets()
-            } finally {
-                page.context().close()
             }
         }
     }
 
     override fun close() {
-        browser?.close()
-        playwright?.close()
+        listBrowser.close()
+        eventBrowser.close()
+    }
+
+    /**
+     * A headless Chromium owned by one dedicated thread. [withPage] runs the
+     * work on that thread (so calls are serialised and thread-correct) in a
+     * fresh browser context that is closed afterwards.
+     */
+    private inner class BrowserSlot(name: String) : AutoCloseable {
+        private val thread = Executors.newSingleThreadExecutor { r -> Thread(r, name).apply { isDaemon = true } }
+        private var playwright: Playwright? = null
+        private var browser: Browser? = null
+
+        fun <T> withPage(work: (Page) -> T): T = try {
+            thread.submit(Callable {
+                val b = browser ?: launch().also { browser = it }
+                val ctx = b.newContext(
+                    Browser.NewContextOptions()
+                        .setUserAgent(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                        )
+                        .setLocale("hu-HU"),
+                )
+                try {
+                    work(ctx.newPage())
+                } finally {
+                    ctx.close()
+                }
+            }).get()
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
+
+        private fun launch(): Browser {
+            log.info("Launching headless Chromium ({})…", Thread.currentThread().name)
+            val p = Playwright.create().also { playwright = it }
+            return p.chromium().launch(
+                BrowserType.LaunchOptions()
+                    .setHeadless(true)
+                    .setArgs(listOf("--no-sandbox", "--disable-dev-shm-usage")),
+            )
+        }
+
+        override fun close() {
+            runCatching {
+                thread.submit {
+                    browser?.close()
+                    playwright?.close()
+                }.get()
+            }
+            thread.shutdown()
+        }
     }
 
     companion object {

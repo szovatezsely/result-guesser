@@ -1,38 +1,49 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { api, type PopularMatch } from '../api'
-
-const matches = ref<PopularMatch[]>([])
-const loading = ref(true)
-const error = ref<string | null>(null)
+import { computed, onMounted, onUnmounted } from 'vue'
+import { autoRefreshMinutes, error, loadMatches, matches, refreshing, updatedAt } from '../matchList'
 
 const fmt = (n: number | null) => (n == null ? '–' : n.toFixed(2))
+const updated = computed(() =>
+  updatedAt.value?.toLocaleString('hu-HU', { dateStyle: 'short', timeStyle: 'short' }) ?? null,
+)
 
-onMounted(async () => {
-  try {
-    matches.value = await api.matches()
-  } catch (e: any) {
-    error.value = e.message ?? 'Ismeretlen hiba'
-  } finally {
-    loading.value = false
-  }
+// The backend refreshes the list in the background; poll its snapshot (cheap, no scraping) to show updates.
+const POLL_MS = 30_000
+let poll: number | undefined
+
+onMounted(() => {
+  loadMatches()
+  poll = window.setInterval(() => loadMatches(), POLL_MS)
 })
+onUnmounted(() => window.clearInterval(poll))
 </script>
 
 <template>
-  <div v-if="loading" class="spinner" />
+  <div v-if="matches === null && !error" class="loading">
+    <div class="spinner" />
+    <p class="muted">Kiemelt meccsek betöltése a TippmixPRO-ról…</p>
+  </div>
 
-  <div v-else-if="error" class="notice error">
+  <div v-else-if="error && matches === null" class="notice error">
     Nem sikerült betölteni a meccseket: {{ error }}
   </div>
 
-  <div v-else-if="matches.length === 0" class="notice">
-    Jelenleg nincs elérhető kiemelt labdarúgó mérkőzés.
-  </div>
+  <template v-else-if="matches">
+    <div v-if="refreshing" class="refresh-banner">
+      <div class="spinner small-spinner" />
+      <span>Meccsek frissítése a TippmixPRO-ról…</span>
+    </div>
+    <div v-else-if="error" class="notice error" style="margin-bottom:1rem">A frissítés nem sikerült: {{ error }}</div>
 
-  <template v-else>
     <p class="muted">Kiemelt labdarúgó mérkőzések — kattints egyre az összes fogadási lehetőség ✅/❌ értékeléséért.</p>
-    <div class="grid">
+    <p v-if="updated" class="muted small list-updated">
+      Frissítve: {{ updated }}<template v-if="autoRefreshMinutes"> · automatikusan {{ autoRefreshMinutes }} percenként</template>
+    </p>
+
+    <div v-if="matches.length === 0" class="notice">
+      Jelenleg nincs elérhető kiemelt labdarúgó mérkőzés.
+    </div>
+    <div v-else class="grid" :class="{ stale: refreshing }">
       <RouterLink
         v-for="m in matches"
         :key="m.id"

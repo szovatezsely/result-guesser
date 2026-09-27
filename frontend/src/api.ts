@@ -103,6 +103,16 @@ export interface AnalysisResponse {
   cached: boolean
 }
 
+export interface MatchListResponse {
+  matches: PopularMatch[]
+  /** When the list was scraped from TippmixPRO (ISO-8601); null if never. */
+  updatedAt: string | null
+  /** A scrape is running right now (e.g. the periodic background refresh). */
+  refreshing: boolean
+  /** How often the backend refreshes the list on its own, in minutes. */
+  autoRefreshMinutes: number
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
   if (!res.ok) {
@@ -113,7 +123,8 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 export const api = {
-  matches: () => getJson<PopularMatch[]>('/api/matches'),
+  /** The last scraped list (instant); [refresh] scrapes TippmixPRO now (~10 s). */
+  matches: (refresh = false) => getJson<MatchListResponse>(`/api/matches${refresh ? '?refresh=true' : ''}`),
   /** The saved analysis if the match was calculated before; [refresh] forces a new calculation. */
   analysis: (id: string, refresh = false) =>
     getJson<AnalysisResponse>(`/api/matches/${encodeURIComponent(id)}/analysis${refresh ? '?refresh=true' : ''}`),

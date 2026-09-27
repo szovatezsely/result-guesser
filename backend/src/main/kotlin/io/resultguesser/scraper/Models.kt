@@ -52,6 +52,13 @@ data class PopularMatch(
     val live: LiveState? = null,
 )
 
+/** The popular list as of its last scrape. */
+data class PopularSnapshot(
+    val matches: List<PopularMatch>,
+    /** When it was scraped; null if no scrape has succeeded yet. */
+    val updatedAt: java.time.Instant?,
+)
+
 /** Everything scraped from an event page in one load, so odds and live score agree. */
 @Serializable
 data class EventMarkets(
