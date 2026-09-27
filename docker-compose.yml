@@ -2,9 +2,11 @@ services:
   backend:
     build: ./backend
     environment:
-      # Get a free key at https://www.football-data.org/client/register
-      FOOTBALL_DATA_API_KEY: ${FOOTBALL_DATA_API_KEY:-}
       PORT: "8080"
+      # Saved analyses (a match is only recalculated on request); kept across restarts in the volume.
+      DATA_DIR: /data
+    volumes:
+      - analyses:/data
     # Chromium needs a larger /dev/shm than Docker's 64MB default.
     shm_size: "1gb"
     expose:
@@ -19,3 +21,6 @@ services:
       # Host port is configurable (8080/8088 are often taken). Default: 9090.
       - "${APP_PORT:-9090}:80"
     restart: unless-stopped
+
+volumes:
+  analyses:

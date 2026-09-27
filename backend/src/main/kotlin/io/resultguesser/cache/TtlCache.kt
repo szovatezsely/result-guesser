@@ -1,4 +1,4 @@
-package io.adroit.resultguesser.cache
+package io.resultguesser.cache
 
 import java.util.concurrent.ConcurrentHashMap
 

@@ -5,6 +5,8 @@
 backend/.gradle/
 backend/build/
 backend/.kotlin/
+# Saved analyses (local runs)
+backend/data/
 
 # Frontend (Node)
 frontend/node_modules/

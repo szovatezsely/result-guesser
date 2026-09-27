@@ -31,7 +31,7 @@ onMounted(async () => {
   </div>
 
   <template v-else>
-    <p class="muted">Kiemelt labdarúgó mérkőzések — kattints egyre a tippért.</p>
+    <p class="muted">Kiemelt labdarúgó mérkőzések — kattints egyre az összes fogadási lehetőség ✅/❌ értékeléséért.</p>
     <div class="grid">
       <RouterLink
         v-for="m in matches"
@@ -44,7 +44,12 @@ onMounted(async () => {
           <span class="team">{{ m.homeTeam }}</span>
           <span class="team">{{ m.awayTeam }}</span>
         </div>
-        <div class="kickoff">{{ m.startTime || '' }}</div>
+        <div class="kickoff">
+          <span v-if="m.live" class="live-badge">
+            ÉLŐ {{ m.live.homeGoals }}–{{ m.live.awayGoals }}<template v-if="m.live.minute != null"> · {{ m.live.minute }}'</template>
+          </span>
+          <template v-else>{{ m.startTime || '' }}</template>
+        </div>
         <div class="odds-row">
           <div class="odds-pill"><span class="k">1</span><span class="v">{{ fmt(m.odds.home) }}</span></div>
           <div class="odds-pill"><span class="k">X</span><span class="v">{{ fmt(m.odds.draw) }}</span></div>

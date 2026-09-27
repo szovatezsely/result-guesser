@@ -1,4 +1,4 @@
-package io.adroit.resultguesser.stats
+package io.resultguesser.stats
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -8,7 +8,7 @@ import java.text.Normalizer
 
 /**
  * Maps the Hungarian team names shown on TippmixPRO to the English names
- * football-data.org uses. Backed by `resources/team-aliases.json`, with a
+ * ESPN uses. Backed by `resources/team-aliases.json`, with a
  * diacritics-insensitive fallback so partial coverage still works. Unknown
  * names are logged so the alias file can be grown over time.
  */

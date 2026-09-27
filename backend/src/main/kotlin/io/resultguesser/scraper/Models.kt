@@ -1,4 +1,4 @@
-package io.adroit.resultguesser.scraper
+package io.resultguesser.scraper
 
 import kotlinx.serialization.Serializable
 
@@ -7,6 +7,8 @@ import kotlinx.serialization.Serializable
 data class Outcome(
     val label: String,
     val odds: Double,
+    /** Header of the column the option sits in (e.g. the team name above a player list), if any. */
+    val column: String? = null,
 )
 
 /** A betting market (a group of outcomes), e.g. "1X2 - Rendes játékidő". */
@@ -24,6 +26,17 @@ data class MatchOdds(
     val away: Double? = null,
 )
 
+/** Current state of an in-play match, as shown on its card. */
+@Serializable
+data class LiveState(
+    val homeGoals: Int,
+    val awayGoals: Int,
+    /** Elapsed minute (e.g. 21 for "21'"), if shown. */
+    val minute: Int? = null,
+    /** Raw period label, e.g. "1. félidő", "2. félidő", "Félidő". */
+    val period: String? = null,
+)
+
 /** A popular ("Kiemelt") match as scraped from the sportsbook home page. */
 @Serializable
 data class PopularMatch(
@@ -35,4 +48,14 @@ data class PopularMatch(
     val odds: MatchOdds = MatchOdds(),
     /** Relative href of the event detail page, used to scrape full markets. */
     val href: String? = null,
+    /** Non-null while the match is in play (live cards link to `/elo-esemenyek/`). */
+    val live: LiveState? = null,
+)
+
+/** Everything scraped from an event page in one load, so odds and live score agree. */
+@Serializable
+data class EventMarkets(
+    val markets: List<Market> = emptyList(),
+    /** Current score/minute read from the event page (in-play events only). */
+    val live: LiveState? = null,
 )

@@ -4,7 +4,7 @@ plugins {
     application
 }
 
-group = "io.adroit.resultguesser"
+group = "io.resultguesser"
 version = "0.1.0"
 
 repositories {
@@ -23,10 +23,11 @@ dependencies {
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-server-call-logging:$ktorVersion")
 
-    // Ktor client (football-data.org)
+    // Ktor client (ESPN stats API)
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-client-encoding:$ktorVersion")
 
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -42,7 +43,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("io.adroit.resultguesser.ApplicationKt")
+    mainClass.set("io.resultguesser.ApplicationKt")
 }
 
 kotlin {
